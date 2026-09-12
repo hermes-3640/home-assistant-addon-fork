@@ -1,5 +1,5 @@
 {
-    "name": "Music Assistant",
-    "url": "https://github.com/music-assistant/core",
-    "maintainer": "Music Assistant <marcelveldt@users.noreply.github.com>"
-  }
+    "name": "Hermes Music Assistant",
+    "url": "https://github.com/hermes-3640/home-assistant-addon-fork",
+    "maintainer": "Hermes Agent <agent@nousresearch.com>"
+}

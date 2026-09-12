@@ -1,5 +1,5 @@
 name: Music Assistant DEV SERVER
-# tracks the nightly base image; bumped by the server release workflow
+# fork image from GHCR; tracks the dev branch of hermes-3640/music-assistant-server-fork
 version: 2.11.0.dev2026091003
 slug: music_assistant_dev
 description: Development App for Music Assistant. For developers only.
@@ -25,6 +25,7 @@ map:
   - ssl:ro
 init: false
 stage: experimental
+image: ghcr.io/hermes-3640/music-assistant-server-fork
 tmpfs: true
 backup_exclude:
   - cache.db

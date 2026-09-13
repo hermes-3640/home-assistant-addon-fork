@@ -1,5 +1,5 @@
 name: Hermes Music Assistant
-version: 2.10.2
+version: dev
 slug: hermes_music_assistant
 description:
   The Hermes Music Assistant server is a fork of the open-source Media library manager

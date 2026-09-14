@@ -32,13 +32,15 @@ backup_exclude:
   - .cache/*
 stage: stable
 image: ghcr.io/hermes-3640/music-assistant-server-fork
-tmpfs: true
 options:
   log_level: info
   safe_mode: false
 schema:
   log_level: list(debug|info|warning|error)
   safe_mode: bool
+volume_mounts:
+  - mount_folder: /data
+    host_folder: /share/musicassistant
 privileged:
   - SYS_ADMIN
   - DAC_READ_SEARCH

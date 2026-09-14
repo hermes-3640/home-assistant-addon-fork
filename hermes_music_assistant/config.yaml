@@ -38,9 +38,6 @@ options:
 schema:
   log_level: list(debug|info|warning|error)
   safe_mode: bool
-volume_mounts:
-  - mount_folder: /data
-    host_folder: /share/musicassistant
 privileged:
   - SYS_ADMIN
   - DAC_READ_SEARCH

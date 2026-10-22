@@ -1,0 +1,135 @@
+name: Track fork image releases
+
+# Keeps hermes_music_assistant/config.yaml pointing at the newest released
+# image of ghcr.io/hermes-3640/music-assistant-server-fork.
+#
+# Why this exists: the Supervisor only offers an add-on update when the
+# add-on's version string changes -- its `need_update` is literally
+# `self.version != self.latest_version` (supervisor apps/app.py). config.yaml
+# declares the image without a tag, so the version *is* the Docker tag
+# (Home Assistant: "set the active Docker tag using the version option").
+# A symbolic version such as `stable` therefore compares equal to itself
+# for ever, `update_available` stays false, and `auto_update: true` on the
+# box never has anything to act on. Rewriting `version:` to a real published
+# release tag is what makes the box's auto-update do something.
+#
+# No secret is needed: the GHCR package is public read, and the commit is
+# pushed with the workflow's own GITHUB_TOKEN (`permissions: contents: write`).
+
+on:
+  schedule:
+    # Every 15 minutes; GitHub may delay a scheduled run under load.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Force this image tag instead of discovering the newest published one"
+        required: false
+        default: ""
+      dry_run:
+        description: "Report the target version without committing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hermes-music-assistant-version
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/hermes-3640/music-assistant-server-fork
+  CONFIG: hermes_music_assistant/config.yaml
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the add-on repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolve the newest released image tag
+        id: latest
+        env:
+          FORCED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          repo="${IMAGE#ghcr.io/}"
+          token=$(curl -fsSL \
+            "https://ghcr.io/token?scope=repository:${repo}:pull&service=ghcr.io" \
+            | jq -r .token)
+          if [ -n "${FORCED}" ]; then
+            tag="${FORCED}"
+          else
+            # Only release-shaped tags (2.10.6-15), never main/latest/sha-*/dev.
+            tag=$(curl -fsSL -H "Authorization: Bearer ${token}" \
+                    "https://ghcr.io/v2/${repo}/tags/list" \
+                  | jq -r '.tags[]?' \
+                  | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$' \
+                  | sort -V \
+                  | tail -n 1 || true)
+          fi
+          if ! printf '%s' "${tag}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'; then
+            echo "::error::${IMAGE} published no release-shaped tag (got '${tag}')"
+            exit 1
+          fi
+          # Never point the add-on at a tag the registry cannot serve.
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+                     -H "Authorization: Bearer ${token}" \
+                     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+                     "https://ghcr.io/v2/${repo}/manifests/${tag}")
+          if [ "${status}" != "200" ]; then
+            echo "::error::${IMAGE}:${tag} is not pullable (HTTP ${status})"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "Newest pullable release tag: ${IMAGE}:${tag}"
+
+      - name: Apply the version to the add-on config
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+          DRY: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+          current=$(grep -m1 '^version:' "${CONFIG}" | cut -d: -f2- | tr -d ' "')
+          if [ -z "${current}" ]; then
+            echo "::error::${CONFIG} has no version: line"
+            exit 1
+          fi
+          echo "current version: ${current} / target: ${TAG}"
+
+          if [ "${current}" = "${TAG}" ]; then
+            echo "already at ${TAG}; nothing to do"
+            echo "- add-on version already ${TAG}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          # Do not walk the add-on backwards if someone pins an older tag by
+          # hand; "stable" is not version-shaped, so the first bump always wins.
+          if printf '%s' "${current}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'; then
+            newest=$(printf '%s\n%s\n' "${current}" "${TAG}" | sort -V | tail -n 1)
+            if [ "${newest}" != "${TAG}" ]; then
+              echo "target ${TAG} is not newer than ${current}; refusing to downgrade"
+              echo "- refused downgrade ${current} -> ${TAG}" >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+          fi
+
+          if [ "${DRY}" = "true" ]; then
+            echo "dry run: would set version ${current} -> ${TAG}"
+            echo "- dry run: would set ${current} -> ${TAG}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          sed -i -E "s|^version:.*$|version: ${TAG}|" "${CONFIG}"
+          git diff -- "${CONFIG}"
+
+          git config user.name "hermes-addon-bot"
+          git config user.email "hermes-3640@users.noreply.github.com"
+          git add "${CONFIG}"
+          git commit -m "hermes_music_assistant: follow ${IMAGE}:${TAG}"
+          git push origin HEAD:main
+          echo "- ${CONFIG}: ${current} -> ${TAG}" >> "${GITHUB_STEP_SUMMARY}"

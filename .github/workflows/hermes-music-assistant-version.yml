@@ -18,8 +18,9 @@ name: Track fork image releases
 
 on:
   schedule:
-    # Every 15 minutes; GitHub may delay a scheduled run under load.
-    - cron: "*/15 * * * *"
+    # Four times an hour, deliberately off the quarter-hours: GitHub drops or
+    # delays scheduled runs that pile onto :00/:15/:30/:45 under load.
+    - cron: "9,24,39,54 * * * *"
   workflow_dispatch:
     inputs:
       version:
